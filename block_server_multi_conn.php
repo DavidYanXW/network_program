@@ -7,28 +7,22 @@
  * 粘包处理：自定义包头，包头内容是包体长度
  * 连接数：1个socket连接
  *
- * 测试目标：持续通讯24+hour
- * 测试结果：
- *
  * @author davidyanxw
  * @date 2018.04.27
  */
 
-// 脚本总超时
-set_time_limit(0);
-// 内存限制
-ini_set('memory_limit', '512M');
-
+set_time_limit(30);
 //创建服务端的socket套接流,net协议为IPv4，protocol协议为TCP
 $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
 
-// reuse address
 socket_set_option($socket, SOL_SOCKET, SO_REUSEADDR, 1);
 
 /*绑定接收的套接流主机和端口,与客户端相对应*/
 if (socket_bind($socket, '127.0.0.1', 8801) == false) {
     echo 'server bind fail:' . socket_strerror(socket_last_error());
+    /*这里的127.0.0.1是在本地主机测试，你如果有多台电脑，可以写IP地址*/
 }
+
 
 //监听套接流
 if (socket_listen($socket, 4) == false) {
@@ -44,7 +38,7 @@ $len_header = 4;
  */
 $accept_resource = socket_accept($socket);
 if($accept_resource === false) {
-    echo "server accept connection failed".PHP_EOL;
+    echo "accept connection failed".PHP_EOL;
     exit;
 }
 // 读写超时时间:0.8s
@@ -59,34 +53,55 @@ while (true) {
     /*读取客户端传过来的资源，并转化为字符串*/
     $string_header = reliable_read($accept_resource, $len_header);
     if ($string_header === false) {
-        echo "server socket error:" . socket_last_error() . ",error msg:" . socket_strerror(socket_last_error()).",time:".microtime(true) . PHP_EOL;
-        break;
-    }
+        if (in_array(socket_last_error(), [SOCKET_EPIPE, SOCKET_ECONNRESET])) {
+            echo "socket error:" . socket_last_error() . ",error msg:" . socket_strerror(socket_last_error()) . PHP_EOL;
+            break;
+        }
+        if (in_array(socket_last_error(), [SOCKET_EAGAIN])) {
+            echo "socket error:" . socket_last_error() . ",error msg:" . socket_strerror(socket_last_error()) . PHP_EOL;
+//            break;
+            // when SOCKET_EAGAIN, retry later
+            usleep(500);
+            continue;
+        }
+        echo "socket error:" . socket_last_error() . ",error msg:" . socket_strerror(socket_last_error()) . PHP_EOL;
 
+        continue;
+    }
     list(, $len) = unpack("I", $string_header);
+
     $string = reliable_read($accept_resource, $len);
+
     if ($string === false) {
-        echo "server socket error:" . socket_last_error() . ",error msg:" . socket_strerror(socket_last_error()).",time:".microtime(true) . PHP_EOL;
+        if (in_array(socket_last_error(), [SOCKET_EPIPE, SOCKET_ECONNRESET])) {
+            echo "socket error:" . socket_last_error() . ",error msg:" . socket_strerror(socket_last_error()) . PHP_EOL;
+            break;
+        }
+        if(in_array(socket_last_error(), [SOCKET_EAGAIN])) {
+            echo "socket error:".socket_last_error().",error msg:".socket_strerror(socket_last_error()).PHP_EOL;
+//            break;
+            // when SOCKET_EAGAIN, retry later
+            usleep(500);
+            continue;
+        }
+        echo "socket error:".socket_last_error().",error msg:".socket_strerror(socket_last_error()).PHP_EOL;
+        echo 'socket_read is fail' . microtime(true);
     } else {
 //        file_put_contents($file_log, $string.PHP_EOL, FILE_APPEND);
         $string = trim($string);
-        echo 'server receive success,msg:['.$string.'],time:' . microtime(true) . PHP_EOL;
+        echo 'server receive is :' . microtime(true) . '[' . $string . ']' . PHP_EOL;//PHP_EOL为php的换行预定义常量
     }
 
-    $ori_client = "hello client!content:abc" . PHP_EOL . "def" . PHP_EOL . "ghi" . PHP_EOL . "jkl" . randomkeys(5);
+    $ori_client = "abc" . PHP_EOL . "def" . PHP_EOL . "ghi" . PHP_EOL . "jkl" . randomkeys(5);
     $header = pack("I*", strlen($ori_client));
     $return_client = $header . $ori_client;
     $ret_write = reliable_write($accept_resource, $return_client);
     if ($ret_write === false) {
         if (in_array(socket_last_error(), [SOCKET_EPIPE, SOCKET_ECONNRESET])) {
-            echo "server socket error:" . socket_last_error() . ",error msg:" . socket_strerror(socket_last_error()) . PHP_EOL;
+            echo "socket error:" . socket_last_error() . ",error msg:" . socket_strerror(socket_last_error()) . PHP_EOL;
             break;
         }
-        echo 'server write fail,socket:'.socket_last_error().',socket error msg:'.socket_strerror(socket_last_error()).',time:'.microtime(true) .PHP_EOL;
         continue;
-    }
-    else {
-        echo 'server write success,msg:['.$ori_client.'],time:' . microtime(true).PHP_EOL;
     }
 } ;
 // 先shutdown，后close
@@ -129,7 +144,6 @@ function reliable_write($socket, $st) {
 
 /**
  * 可靠读
- * socket关闭，特殊情形：中断，超时
  * @param $socket
  * @param $length
  * @return bool|string
@@ -138,19 +152,18 @@ function reliable_read($socket, $length) {
     $str_read = "";
 
     while (true) {
-        $len_read = socket_recv($socket, $have_read, $length, 0);
+        $have_read = socket_read($socket, $length);
+        $str_read .= $have_read;
+
         // socket断开
-        if($len_read === 0) {
-            // 处理中断, 处理超时
-            if(in_array(socket_last_error($socket) , [SOCKET_EINTR, SOCKET_EAGAIN])) {
-                continue;
+        if ($have_read === false || $have_read === '' ) {
+            if(!is_resource($socket) || @feof($socket) || ($have_read=== false)) {
+                return false;
             }
-            return false;
         }
 
-        $str_read .= $have_read;
-        if ($len_read < $length) {
-            $length -= $len_read;
+        if (strlen($have_read) < $length) {
+            $length -= strlen($have_read);
         } else {
             //
             return $str_read;
