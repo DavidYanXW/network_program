@@ -5,7 +5,10 @@
  * 基于php socket函数族
  * IO模型：同步阻塞
  * 粘包处理：自定义包头，包头内容是包体长度
- * 连接数：1个socket连接
+ * 连接数: 多进程多连接。
+ * 每次accept一个socket，server单独fork一个子进程来处理socket
+ *
+ *
  *
  * @author davidyanxw
  * @date 2018.04.27
@@ -37,13 +40,14 @@ if (socket_listen($socket, 4) == false) {
 
 $len = 100;
 $len_header = 4;
+$pid = posix_getpid();
 
 // 忽略子进程信号
 pcntl_signal(SIGCHLD, SIG_IGN);
 
 //让服务器无限获取客户端传过来的信息
 while (true) {
-    $file_log = "/tmp/server.log.".date("Ymd");
+    $file_log = "/tmp/server.log.$pid.".date("Ymd");
 
     /**
      * 接收client的连接, 并生成通信的socket($accept_resource)
@@ -51,7 +55,7 @@ while (true) {
      */
     $accept_resource = socket_accept($socket);
     if($accept_resource === false) {
-        echo "accept connection failed".PHP_EOL;
+        redirectIO("accept connection failed".PHP_EOL, false, $file_log);
         continue;
     }
     // 读写超时时间:0.8s
@@ -60,7 +64,7 @@ while (true) {
 
     $pid = pcntl_fork();
     if($pid == -1) {
-        echo "pcntl fork fail!".PHP_EOL;
+        redirectIO("pcntl fork fail!".PHP_EOL, false, $file_log);
         @socket_shutdown($accept_resource);
         socket_close($accept_resource);
     }
@@ -70,35 +74,42 @@ while (true) {
         pcntl_wait($status, WNOHANG);
     }
     else {
+        $pid_son = posix_getpid();  // server子进程pid
+        $file_log = "/tmp/server.log.$pid_son.".date("Ymd");
         while(true) {
             // process child
-            echo "server: start read ".PHP_EOL;
+            redirectIO("server: start read ".PHP_EOL, false, $file_log);
             /*读取客户端传过来的资源，并转化为字符串*/
             $string = biz_read($accept_resource, $len_header);
             if($string === false) {
-                echo errorMsg();
+                redirectIO(errorMsg(), false, $file_log);
                 break;
             }
             else {
                 $string = trim($string);
-                echo 'server receive is :' . microtime(true) . '[' . $string . ']' . PHP_EOL;//PHP_EOL为php的换行预定义常量
+                $io_msg =  'server receive is :' . microtime(true) . '[' . $string . ']' . PHP_EOL;//PHP_EOL为php的换行预定义常量
+                redirectIO($io_msg, false, $file_log);
             }
 
-            echo "server: start write ".PHP_EOL;
+            redirectIO("server: start write ".PHP_EOL, false, $file_log);
             // 向服务端写入字符串信息
             $ori_client = "Hello client!content:abc" . PHP_EOL . "def" . PHP_EOL . "ghi" . PHP_EOL . "jkl" . randomkeys(5);
             $sent = biz_write($accept_resource, $ori_client);
             if ($sent === false) {
                 if(in_array(socket_last_error(), [SOCKET_EPIPE, SOCKET_ECONNRESET])) {
-                    echo errorMsg();
+                    redirectIO(errorMsg(), false, $file_log);
                     break;
                 }
-                echo 'server: fail to write|'.socket_last_error().'|'.(microtime(true)-$time_start).'|' . socket_strerror(socket_last_error()).PHP_EOL;
+                $io_msg = 'server write fail|'.socket_last_error().'|'.(microtime(true)-$time_start).'|' . socket_strerror(socket_last_error()).PHP_EOL;
+                redirectIO($io_msg, false, $file_log);
             }
             else {
-                echo "server: sucess to write[$ori_client]".PHP_EOL;
+                redirectIO("server write sucess,msg:[$ori_client]".PHP_EOL, false, $file_log);
             }
         }
+        @socket_shutdown($accept_resource);
+        socket_close($accept_resource);
+        exit(0);    // 子进程通讯结束
     }
 
 } ;

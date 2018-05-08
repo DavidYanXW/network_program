@@ -5,7 +5,7 @@
  * 基于php socket函数族
  * IO模型：同步阻塞
  * 粘包处理：自定义包头，包头内容是包体长度
- * 连接数：1个socket连接
+ *
  *
  * @author davidyanxw
  * @date 2018.04.27
@@ -27,44 +27,48 @@ $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
 *************/
 //接收套接流的最大超时时间(800ms)，后面是微秒单位超时时间，设置为零，表示不设置超时
 //发送套接流的最大超时时间(800ms)
-//socket_set_option($socket, SOL_SOCKET, SO_RCVTIMEO, array("sec" => 0, "usec" => 800000));
-//socket_set_option($socket, SOL_SOCKET, SO_SNDTIMEO, array("sec" => 0, "usec" => 800000));
+socket_set_option($socket, SOL_SOCKET, SO_RCVTIMEO, array("sec" => 0, "usec" => 800000));
+socket_set_option($socket, SOL_SOCKET, SO_SNDTIMEO, array("sec" => 0, "usec" => 800000));
 
 
 $len = 100;
 $len_header = 4;
+$pid = posix_getpid();
 
 //连接服务端的套接流，这一步就是使客户端与服务器端的套接流建立联系
 if (socket_connect($socket, '127.0.0.1', 8801) == false) {
     echo 'connect fail massege:' . socket_strerror(socket_last_error());
 } else {
     while(1){
-        $file_log = "/tmp/client.log.".date("Ymd");
+        $file_log = "/tmp/client.log.$pid.".date("Ymd");
 
         //向服务端写入字符串信息
-        echo "client: start write ".PHP_EOL;
+        redirectIO("client: start write ".PHP_EOL, false, $file_log);
         $ori_cli = 'Hello, socket!'.randomkeys(8);
         $sent = biz_write($socket, $ori_cli);
         if ($sent === false) {
             if(in_array(socket_last_error(), [SOCKET_EPIPE, SOCKET_ECONNRESET])) {
-                echo errorMsg();
+                redirectIO( errorMsg() , false, $file_log);
                 break;
             }
-            echo 'client write fail|'.socket_last_error().'|'.(microtime(true)-$time_start).'|' . socket_strerror(socket_last_error()).PHP_EOL;
+            $io_msg = 'client write fail|'.socket_last_error().'|'.(microtime(true)-$time_start).'|' . socket_strerror(socket_last_error()).PHP_EOL;
+            redirectIO($io_msg, false, $file_log);
         }
         else{
-            echo 'client write success['.$ori_cli.']' . microtime(true).PHP_EOL;
+            $io_msg =  'client write success['.$ori_cli.']' . microtime(true).PHP_EOL;
+            redirectIO($io_msg, false, $file_log);
         }
 
         //读取服务端返回来的套接流信息
-        echo "client: start read ".PHP_EOL;
+        redirectIO( "client: start read ".PHP_EOL, false, $file_log) ;
         $string = biz_read($socket, $len_header);
         if($string === false) {
-            echo errorMsg();
+            redirectIO( errorMsg() , false, $file_log);
             break;
         }
         else {
-            echo 'server return message is:' . microtime(true)."[".$string."]".PHP_EOL;
+            $io_msg = 'client receive success:' . microtime(true)."[".$string."]".PHP_EOL;
+            redirectIO($io_msg, false, $file_log);
         }
     }
 
