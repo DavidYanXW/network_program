@@ -147,3 +147,17 @@ function biz_write($socket, $msg) {
 function errorMsg() {
     return "socket error:".socket_last_error().",error msg:".socket_strerror(socket_last_error()).PHP_EOL;
 }
+
+/**
+ * 方便调试，输出到文件
+ * 重定向输出
+ * @param $msg
+ */
+function redirectIO($msg, $echo=true, $log=false) {
+    if($echo) {
+        echo $msg;
+    }
+    if($log) {
+        file_put_contents($log, $msg, FILE_APPEND);
+    }
+}
