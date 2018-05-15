@@ -8,13 +8,23 @@
  * 连接数: 多进程多连接。
  * 每次accept一个socket，server单独fork一个子进程来处理socket
  *
- *
+ * 测试结果: 10个client，server端fork10个子进程。
+ * 单CPU：load：13
  *
  * @author davidyanxw
  * @date 2018.04.27
  */
 
 include "vendor/helper.php";
+
+// 开启异步信号
+if (function_exists('pcntl_async_signals')) {
+    // for php 7.1
+    pcntl_async_signals(true);
+} else {
+    // for php 4.3.0+ (up to 7.0)
+    declare(ticks = 1);
+}
 
 // 脚本总超时
 set_time_limit(0);
