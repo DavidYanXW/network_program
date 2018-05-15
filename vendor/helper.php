@@ -33,13 +33,25 @@ function reliable_read($socket, $length) {
 
     while (true) {
         $len_read = @socket_recv($socket, $have_read, $length, 0);
-        // socket断开
+
         if($len_read === 0) {
-            // 处理中断, 处理超时
-            if(in_array(socket_last_error($socket) , [SOCKET_EINTR, SOCKET_EAGAIN])) {
+            // socket断开
+            // 处理中断
+            if(in_array(socket_last_error($socket) , [SOCKET_EINTR])) {
                 continue;
             }
             return false;
+        }
+        elseif($len_read ===false) {
+            // socket正常
+            // 处理EAGAIN, 记录日志
+            if(in_array(socket_last_error($socket) , [SOCKET_EAGAIN])) {
+                // @todo: bug-- 多进程时，kill掉server端子进程，对端client进程不退出
+                redirectIO("[".date("Y-m-d H:i:s")."]".__LINE__.":".SOCKET_EAGAIN.PHP_EOL, false, "/tmp/debug_eagain.log");
+//                return false;
+                continue;
+            }
+            continue;
         }
 
         $str_read .= $have_read;
@@ -160,4 +172,29 @@ function redirectIO($msg, $echo=true, $log=false) {
     if($log) {
         file_put_contents($log, $msg, FILE_APPEND);
     }
+}
+
+/**
+ * 信号处理函数
+ * @param $signo
+ */
+function sig_handler($signo)
+{
+
+    switch ($signo) {
+        case SIGTERM:
+            // handle shutdown tasks
+            exit;
+            break;
+        case SIGHUP:
+            // handle restart tasks
+            break;
+        case SIGUSR1:
+            redirectIO("Caught SIGUSR1...".PHP_EOL, true);
+            break;
+        default:
+            // handle all other signals
+            redirectIO("Caught Signal:".$signo.PHP_EOL, false, "/tmp/signal.log");
+    }
+
 }
