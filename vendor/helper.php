@@ -32,7 +32,8 @@ function reliable_read($socket, $length) {
     $str_read = "";
 
     while (true) {
-        $len_read = @socket_recv($socket, $have_read, $length, 0);
+        // flags: MSG_WAITALL (尽量读全)；nonblock模式下无效
+        $len_read = @socket_recv($socket, $have_read, $length, MSG_WAITALL);
 
         if($len_read === 0) {
             // socket断开
@@ -83,6 +84,8 @@ function reliable_write($socket, $st) {
         }
 
         // Check if the entire message has been sented
+        // block模式下，一次写完所有数据，不过可能被中断
+        // nonblock模式下，内核缓冲区有多少空闲就会写多少数据
         if ($sent < $length) {
             // If not sent the entire message.
             // Get the part of the message that has not yet been sented as message

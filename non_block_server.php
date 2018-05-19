@@ -42,7 +42,7 @@ socket_set_nonblock($socket);
 /*绑定接收的套接流主机和端口,与客户端相对应*/
 if (socket_bind($socket, '127.0.0.1', 8801) == false) {
     echo 'server bind fail:' . socket_strerror(socket_last_error());
-    /*这里的127.0.0.1是在本地主机测试，你如果有多台电脑，可以写IP地址*/
+    exit;
 }
 
 //监听套接流
@@ -93,6 +93,9 @@ for($i=0;$i<$max_process_num;$i++){
             socket_set_option($accept_resource, SOL_SOCKET, SO_RCVTIMEO, array("sec" => 0, "usec" => 800000));
             socket_set_option($accept_resource, SOL_SOCKET, SO_SNDTIMEO, array("sec" => 0, "usec" => 800000));
 
+            // 获取通讯对端addr/port
+            socket_getpeername($accept_resource, $remote_addr, $remote_port);
+
             // send or recv msg
             while(true) {
                 // recv msg
@@ -105,7 +108,7 @@ for($i=0;$i<$max_process_num;$i++){
                 }
                 else {
                     $string = trim($string);
-                    $io_msg =  'server receive is :' . microtime(true) . '[' . $string . ']' . PHP_EOL;//PHP_EOL为php的换行预定义常量
+                    $io_msg =  'server receive['.$remote_addr.':'.$remote_port.'] is :' . microtime(true) . '[' . $string . ']' . PHP_EOL;//PHP_EOL为php的换行预定义常量
                     redirectIO($io_msg, false, $file_log);
                 }
 
@@ -123,7 +126,7 @@ for($i=0;$i<$max_process_num;$i++){
                     redirectIO($io_msg, false, $file_log);
                 }
                 else {
-                    redirectIO("server write sucess,msg:[$ori_client]".PHP_EOL, false, $file_log);
+                    redirectIO("server write[$remote_addr:$remote_port] sucess,msg:[$ori_client]".PHP_EOL, false, $file_log);
                 }
             }
             @socket_shutdown($accept_resource);
